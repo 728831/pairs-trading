@@ -12,46 +12,64 @@ class DataLoader:
         
         
         if end_date is None:
-            self.end_date = datetime.now().strftime('%Y-%m-%d')
+            self.end_date = datetime.today().strftime('%Y-%m-%d')
         else:
             self.end_date = end_date
             
         if start_date is None:
-            start = datetime.now() - timedelta(days=15*365)
-            self.start_date = start.strftime('%Y-%m-%d')
+            start = (datetime.today() - timedelta(days=365*15)).strftime('%Y-%m-%d')
+            self.start_date = start
         else:
             self.start_date = start_date
             
         self.data = None
         
     def download_data(self, save=True):
+ 
+        import time
+        
         print(f"Downloading data for {', '.join(self.tickers)}")
         print(f"Period: {self.start_date} to {self.end_date}")
         
-       
-        data = yf.download(
-            self.tickers,
-            start=self.start_date,
-            end=self.end_date,
-            progress=True
-        )
+        all_prices = []
         
-       
-        if len(self.tickers) > 1:
-            prices = data['Adj Close'].copy()
+        for ticker in self.tickers:
+            print(f"\nDownloading {ticker}...")
+            try:
+                time.sleep(1)  # Pause between requests
+                data = yf.download(
+                    ticker,
+                    start=self.start_date,
+                    end=self.end_date,
+                    progress=False
+                )
+                
+                if not data.empty:
+                    prices = data['Close'].copy()
+                    prices.name = ticker
+                    all_prices.append(prices)
+                    print(f"✓ {ticker}: {len(prices)} days downloaded")
+                else:
+                    print(f"✗ {ticker}: No data returned")
+                    
+            except Exception as e:
+                print(f"✗ {ticker}: Error - {e}")
+                
+        # Combine all data
+        if len(all_prices) > 0:
+            prices = pd.concat(all_prices, axis=1)
+            prices = prices.dropna()
         else:
-            prices = pd.DataFrame(data['Adj Close'])
-            prices.columns = self.tickers
-            
-        
-        prices = prices.dropna()
+            raise ValueError("No data downloaded for any ticker!")
         
         self.data = prices
         
-        print(f"\nData downloaded successfully!")
+        print(f"\n{'='*60}")
+        print(f"Data downloaded successfully!")
         print(f"Shape: {prices.shape}")
         print(f"Date range: {prices.index[0]} to {prices.index[-1]}")
         print(f"Missing values: {prices.isnull().sum().sum()}")
+        print(f"{'='*60}")
         
         if save:
             self._save_data()
@@ -85,7 +103,7 @@ class DataLoader:
         if self.data is None:
             raise ValueError("No data available. Download or load data first.")
             
-        assert abs(train_ratio + test_ratio + val_ratio - 1.0) < 1e-6, \
+        assert abs(train_ratio + test_ratio + val_ratio - 1.0) < 1e-6, "Ratios must sum to 1."
             
         n = len(self.data)
         train_end = int(n * train_ratio)
@@ -123,7 +141,7 @@ class DataLoader:
 
 
 if __name__ == "__main__":
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'META']
+    tickers = ['TSLA', 'NVDA', 'GOOGL', 'MSFT']
     
     loader = DataLoader(tickers)
     
