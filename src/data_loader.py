@@ -78,10 +78,11 @@ class DataLoader:
     
     def _save_data(self):
         os.makedirs('data/raw', exist_ok=True)
-        
-        filename = f"data/raw/prices_{self.start_date}_to_{self.end_date}.csv"
+        tickers_tag = "-".join(self.tickers)
+        filename = f"data/raw/prices_{tickers_tag}_{self.start_date}_to_{self.end_date}.csv"
         self.data.to_csv(filename)
         print(f"\nData saved to: {filename}")
+
         
     def load_data(self, filename):
 
@@ -141,7 +142,7 @@ class DataLoader:
 
 
 if __name__ == "__main__":
-    tickers = ['TSLA', 'NVDA', 'GOOGL', 'MSFT']
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'META']
     
     loader = DataLoader(tickers)
     

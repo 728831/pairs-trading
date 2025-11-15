@@ -1,7 +1,3 @@
-"""
-Pairs Trading Strategy Module
-Implements complete pairs trading strategy with dynamic hedge ratios and VECM.
-"""
 
 import numpy as np
 import pandas as pd
@@ -17,14 +13,16 @@ from kalman_filter import KalmanFilterHedgeRatio, KalmanFilterTradingSignals, ca
 class PairsTradingStrategy:
 
     def __init__(self, asset1, asset2, data, 
-                 delta_hedge=1e-4, Ve_hedge=1e-3,
-                 delta_signal=1e-3, Ve_signal=1e-2,
+                 delta_hedge=2e-5, Ve_hedge=5e-5,
+                 delta_signal=6e-5, Ve_signal=1e-5,
                  entry_threshold=2.0, exit_threshold=0.5,
-                 stop_loss=None, take_profit=None):
+                 stop_loss=None, take_profit=None,
+                 johansen_result=None):
 
         self.asset1 = asset1
         self.asset2 = asset2
         self.data = data
+        self.johansen_result = johansen_result
         
         # Kalman Filters
         self.kf_hedge = KalmanFilterHedgeRatio(delta=delta_hedge, Ve=Ve_hedge)
@@ -43,6 +41,8 @@ class PairsTradingStrategy:
         self.z_scores = None
         self.signals = None
         self.vecm_model = None
+        self.vecm_result = None
+        self.alpha_coefficients = None  # Error correction speeds
         
     def calculate_dynamic_hedge_ratio(self):
 
@@ -53,8 +53,21 @@ class PairsTradingStrategy:
         prices1 = self.data[self.asset1].values
         prices2 = self.data[self.asset2].values
         
+        # Get initial hedge ratio from Johansen if available
+        initial_beta = None
+        if self.johansen_result is not None:
+            # Johansen eigenvector: [w1, w2] where spread = w1*P1 + w2*P2
+            # Convert to hedge ratio: beta = -w1/w2 (so spread = P1 - beta*P2)
+            eigenvector = self.johansen_result['eigenvectors']
+            initial_beta = -eigenvector[0] / eigenvector[1]
+            print(f"✓ Using Johansen eigenvector for initialization")
+            print(f"  Eigenvector: [{eigenvector[0]:.4f}, {eigenvector[1]:.4f}]")
+            print(f"  Initial β from Johansen: {initial_beta:.4f}")
+        else:
+            print(f"⚠ No Johansen result provided, using OLS initialization")
+        
         # Run Kalman Filter
-        hedge_ratios, P_est, K_gains = self.kf_hedge.filter(prices1, prices2)
+        hedge_ratios, P_est, K_gains = self.kf_hedge.filter(prices1, prices2, initial_beta=initial_beta)
         
         self.hedge_ratios = hedge_ratios
         
@@ -78,23 +91,32 @@ class PairsTradingStrategy:
         # Fit VECM
         try:
             self.vecm_model = VECM(data_for_vecm, k_ar_diff=1, coint_rank=1, deterministic='ci')
-            vecm_result = self.vecm_model.fit()
+            self.vecm_result = self.vecm_model.fit()
             
             print(f"✓ VECM model fitted")
             print(f"  Cointegration rank: 1")
             print(f"  Lag order: 1")
             
-            # Extract error correction coefficients
-            alpha = vecm_result.alpha
-            print(f"  Error correction coefficients (α):")
-            print(f"    {self.asset1}: {alpha[0, 0]:.4f}")
-            print(f"    {self.asset2}: {alpha[1, 0]:.4f}")
+            # Extract error correction coefficients (alpha)
+            # Alpha represents the speed of mean reversion
+            # Larger |alpha| = faster mean reversion
+            self.alpha_coefficients = self.vecm_result.alpha
             
-            return vecm_result
+            print(f"  Error correction coefficients (α):")
+            print(f"    {self.asset1}: {self.alpha_coefficients[0, 0]:.4f}")
+            print(f"    {self.asset2}: {self.alpha_coefficients[1, 0]:.4f}")
+            print(f"  Mean reversion speed: {np.mean(np.abs(self.alpha_coefficients)):.4f}")
+            
+            # Store beta from VECM for comparison
+            vecm_beta = self.vecm_result.beta[0, 0]
+            print(f"  VECM cointegrating vector (β): {vecm_beta:.4f}")
+            
+            return self.vecm_result
             
         except Exception as e:
             print(f"⚠ VECM fitting failed: {e}")
             print("  Using simple spread calculation instead")
+            self.alpha_coefficients = None
             return None
     
     def calculate_spread(self):
@@ -343,7 +365,7 @@ if __name__ == "__main__":
     # Use training data
     train, test, val = loader.split_data()
     
-    # Initialize strategy (using best pair: GOOGL-META)
+    # Initialize strategy (using best pair: 
     strategy = PairsTradingStrategy(
         asset1='GOOGL',
         asset2='META',

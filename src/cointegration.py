@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.stattools import adfuller, coint
@@ -226,7 +225,7 @@ if __name__ == "__main__":
     from data_loader import DataLoader
     
     print("Loading data...")
-    loader = DataLoader(['AAPL', 'MSFT', 'GOOGL', 'NVDA'])
+    loader = DataLoader(['AAPL', 'MSFT', 'GOOGL', 'META'])
     
     # Try to load existing data
     try:
